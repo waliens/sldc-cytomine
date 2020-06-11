@@ -11,7 +11,7 @@ This folder contains a binding between Cytomine and SLDC.
 
 Classes:
 
-* `CytomineSlide`: encapsulating an `ImageInstance`
+* `CytomineSlide`: encapsulating an `ImageInstance` and `SliceInstance`
 * `CytomineTile`
 * `CytomineTileBuilder`
 * `TileCache`: to avoid downloading the same tile several times. 
