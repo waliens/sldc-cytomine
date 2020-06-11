@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 import os
+import warnings
+
 import numpy as np
 import PIL
 from PIL.Image import fromarray
+from cytomine import Cytomine
 from cytomine.models import ImageInstance
 from shapely.geometry import Polygon, box
-from sldc import TileExtractionException, alpha_rasterize, Image, Tile, TileBuilder
-
+from sldc import TileExtractionException, alpha_rasterize, Image, Tile, TileBuilder, TileTopology
 
 __author__ = "Mormont Romain <romain.mormont@gmail.com>"
 __version__ = "1.0"
@@ -17,19 +19,34 @@ class CytomineSlide(Image):
     A slide from a cytomine project
     """
 
-    def __init__(self, id_img_instance):
+    def __init__(self, id_img_instance, zoom_level=0):
         """Construct CytomineSlide objects
 
         Parameters
         ----------
         id_img_instance: int
             The id of the image instance
+        zoom_level: int
+            The zoom level at which the slide must be read. The maximum zoom level is 0 (most zoomed in). The greater
+            the value, the lower the zoom.
         """
+        if zoom_level > 0:
+            warnings.warn("when using zoom_level > 0, tile width, height and "
+                          "overlap should be repesctively set to 256, 256 and 0")
         self._img_instance = ImageInstance().fetch(id_img_instance)
+        self._slice_instance = self._img_instance.reference_slice()
+        if zoom_level > self._img_instance.zoom:
+            raise ValueError("invalid number of zoom levels selected ({}, max={})".format(
+                zoom_level, self._img_instance.zoom))
+        self._zoom_level = zoom_level
 
     @property
     def image_instance(self):
         return self._img_instance
+
+    @property
+    def slice_instance(self):
+        return self._slice_instance
 
     @property
     def np_image(self):
@@ -37,18 +54,28 @@ class CytomineSlide(Image):
 
     @property
     def width(self):
-        return self._img_instance.width
+        return self._img_instance.width // (2 ** self.zoom_level)
 
     @property
     def height(self):
-        return self._img_instance.height
+        return self._img_instance.height // (2 ** self.zoom_level)
 
     @property
     def channels(self):
         return 3
 
+    @property
+    def zoom_level(self):
+        return self._zoom_level
+
+    @property
+    def api_zoom_level(self):
+        """The zoom level used by cytomine api uses 0 as lower level of zoom (most zoomed out). This property
+        returns a zoom value that can be used to communicate with the backend."""
+        return self._img_instance.zoom - self.zoom_level
+
     def __str__(self):
-        return "CytomineSlide (#{}) ({} x {})".format(self._img_instance.id, self.width, self.height)
+        return "CytomineSlide (#{}) ({} x {}) (zoom: {})".format(self._img_instance.id, self.width, self.height, self.zoom_level)
 
 
 class CytomineTile(Tile):
@@ -86,15 +113,22 @@ class CytomineTile(Tile):
         try:
             image_instance = self.base_image.image_instance
             x, y, width, height = self.abs_offset_x, self.abs_offset_y, self.width, self.height
+            zoom = self.parent.zoom_level
 
             # check if the tile was cached
-            cache_filename_format = "{id}-{x}-{y}-{w}-{h}.png"
-            cache_filename = cache_filename_format.format(id=image_instance.id, x=x, y=y, w=width, h=height)
+            cache_filename_format = "{id}-{zoom}-{x}-{y}-{w}-{h}.png"
+            cache_filename = cache_filename_format.format(id=image_instance.id, x=x, y=y, w=width, h=height, zoom=zoom)
             cache_path = os.path.join(self._working_path, cache_filename)
+            success = True
             if not os.path.exists(cache_path):
-                if not image_instance.window(x=x, y=y, w=width, h=height, dest_pattern=cache_path):
-                    raise TileExtractionException("Cannot fetch tile at for "
-                                                  "'{}'.".format(cache_filename_format.split(".", 1)[0]))
+                if zoom == 0:
+                    success = self._get_tile_no_zoom(cache_path)
+                else:
+                    success = self._get_tile_with_zoom(cache_path)
+
+            if not success:
+                raise TileExtractionException("Cannot fetch tile at for "
+                                              "'{}'.".format(cache_filename_format.split(".", 1)[0]))
 
             # load image
             np_array = np.asarray(PIL.Image.open(cache_path))
@@ -116,6 +150,30 @@ class CytomineTile(Tile):
                     return np_array
         except IOError as e:
             raise TileExtractionException(str(e))
+
+    def _get_tile_with_zoom(self, path):
+        parent = self.parent
+        iip_topology = TileTopology(parent, None, max_width=256, max_height=256, overlap=0)
+        nb_tiles = iip_topology.tile_count
+        col_tile = self.abs_offset_x // 256
+        row_tile = self.abs_offset_y // 256
+        iip_tile_index = col_tile + row_tile * nb_tiles
+        _slice = parent.slice_instance
+        return Cytomine.get_instance().download_file(_slice.imageServerUrl + "/slice/tile", path, False, payload={
+            "fif": _slice.path,
+            "mimeType": _slice.mime,
+            "tileIndex": iip_tile_index,
+            "z": parent.api_zoom_level
+        })
+
+    def _get_tile_no_zoom(self, path):
+        return self.parent.image_instance.window(
+            x=self.abs_offset_x,
+            y=self.abs_offset_y,
+            w=self.width,
+            h=self.height,
+            dest_pattern=path
+        )
 
     @property
     def channels(self):
