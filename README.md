@@ -1,11 +1,17 @@
 
-# Cytomine-SLDC
+# SLDC-Cytomine
+
+## Install
+
+From PyPi: `pip install sldc-cytomine`
+
+## Documentation
 
 This folder contains a binding between Cytomine and SLDC.
 
 Classes:
 
-* `CytomineSlide`
+* `CytomineSlide`: encapsulating an `ImageInstance`
 * `CytomineTile`
 * `CytomineTileBuilder`
-* `TileCache`
+* `TileCache`: to avoid downloading the same tile several times. 
