@@ -154,10 +154,9 @@ class CytomineTile(Tile):
     def _get_tile_with_zoom(self, path):
         parent = self.parent
         iip_topology = TileTopology(parent, None, max_width=256, max_height=256, overlap=0)
-        nb_tiles = iip_topology.tile_count
         col_tile = self.abs_offset_x // 256
         row_tile = self.abs_offset_y // 256
-        iip_tile_index = col_tile + row_tile * nb_tiles
+        iip_tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
         _slice = parent.slice_instance
         return Cytomine.get_instance().download_file(_slice.imageServerUrl + "/slice/tile", path, False, payload={
             "fif": _slice.path,
