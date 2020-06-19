@@ -113,7 +113,7 @@ class CytomineTile(Tile):
         try:
             image_instance = self.base_image.image_instance
             x, y, width, height = self.abs_offset_x, self.abs_offset_y, self.width, self.height
-            zoom = self.parent.zoom_level
+            zoom = self.base_image.zoom_level
 
             # check if the tile was cached
             cache_filename_format = "{id}-{zoom}-{x}-{y}-{w}-{h}.png"
@@ -152,21 +152,21 @@ class CytomineTile(Tile):
             raise TileExtractionException(str(e))
 
     def _get_tile_with_zoom(self, path):
-        parent = self.parent
-        iip_topology = TileTopology(parent, None, max_width=256, max_height=256, overlap=0)
+        slide = self.base_image  # must be a CytomineSlide
+        iip_topology = TileTopology(slide, None, max_width=256, max_height=256, overlap=0)
         col_tile = self.abs_offset_x // 256
         row_tile = self.abs_offset_y // 256
         iip_tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
-        _slice = parent.slice_instance
+        _slice = slide.slice_instance
         return Cytomine.get_instance().download_file(_slice.imageServerUrl + "/slice/tile", path, False, payload={
             "fif": _slice.path,
             "mimeType": _slice.mime,
             "tileIndex": iip_tile_index,
-            "z": parent.api_zoom_level
+            "z": slide.api_zoom_level
         })
 
     def _get_tile_no_zoom(self, path):
-        return self.parent.image_instance.window(
+        return self.base_image.image_instance.window(
             x=self.abs_offset_x,
             y=self.abs_offset_y,
             w=self.width,
