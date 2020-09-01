@@ -22,23 +22,27 @@ class CytomineSlide(Image):
     A slide from a cytomine project
     """
 
-    def __init__(self, id_img_instance, zoom_level=0):
+    def __init__(self, img_instance, zoom_level=0):
         """Construct CytomineSlide objects
 
         Parameters
         ----------
-        id_img_instance: int
-            The id of the image instance
+        img_instance: ImageInstance
+            The the image instance
         zoom_level: int
             The zoom level at which the slide must be read. The maximum zoom level is 0 (most zoomed in). The greater
             the value, the lower the zoom.
         """
-        self._img_instance = ImageInstance().fetch(id_img_instance)
+        self._img_instance = img_instance
         self._slice_instance = self._img_instance.reference_slice()
         if zoom_level > self._img_instance.zoom:
             raise ValueError("invalid number of zoom levels selected ({}, max={})".format(
                 zoom_level, self._img_instance.zoom))
         self._zoom_level = zoom_level
+
+    @classmethod
+    def from_id(cls, id_img_instance, zoom_level=0):
+        return cls(ImageInstance.fetch(id_img_instance), zoom_level=zoom_level)
 
     @property
     def image_instance(self):
