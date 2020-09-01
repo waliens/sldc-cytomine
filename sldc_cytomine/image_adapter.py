@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import warnings
+from abc import abstractmethod
 
 import numpy as np
 import PIL
@@ -30,9 +31,6 @@ class CytomineSlide(Image):
             The zoom level at which the slide must be read. The maximum zoom level is 0 (most zoomed in). The greater
             the value, the lower the zoom.
         """
-        if zoom_level > 0:
-            warnings.warn("when using zoom_level > 0, tile width, height and "
-                          "overlap should be repesctively set to 256, 256 and 0")
         self._img_instance = ImageInstance().fetch(id_img_instance)
         self._slice_instance = self._img_instance.reference_slice()
         if zoom_level > self._img_instance.zoom:
@@ -78,12 +76,83 @@ class CytomineSlide(Image):
         return "CytomineSlide (#{}) ({} x {}) (zoom: {})".format(self._img_instance.id, self.width, self.height, self.zoom_level)
 
 
-class CytomineTile(Tile):
-    """
-    A tile from a cytomine slide
-    """
+class CytomineDownloadableTile(Tile):
     def __init__(self, working_path, parent, offset, width, height, tile_identifier=None, polygon_mask=None):
-        """Constructor for CytomineTile objects
+        Tile.__init__(self, parent, offset, width, height, tile_identifier=tile_identifier, polygon_mask=polygon_mask)
+        self._working_path = working_path
+
+    @abstractmethod
+    def download_tile_image(self):
+        pass
+
+    @property
+    def cache_filename(self):
+        image_instance = self.base_image.image_instance
+        x, y, width, height = self.abs_offset_x, self.abs_offset_y, self.width, self.height
+        zoom = self.base_image.zoom_level
+        cache_filename_format = "{id}-{zoom}-{x}-{y}-{w}-{h}.png"
+        return cache_filename_format.format(id=image_instance.id, x=x, y=y, w=width, h=height, zoom=zoom)
+
+    @property
+    def cache_filepath(self):
+        return os.path.join(self._working_path)
+
+    @property
+    def np_image(self):
+        try:
+            if not os.path.exists(self.cache_filepath) and not self.download_tile_image():
+                raise TileExtractionException("Cannot fetch tile at for '{}'.".format(self.cache_filename))
+
+            np_array = np.asarray(PIL.Image.open(self.cache_filepath))
+
+            if np_array.shape[:2] != (self.height, self.width) or  np_array.shape[2] != self.base_image.channels:
+                raise TileExtractionException("Fetched image has invalid size : {} instead "
+                                              "of {}".format(np_array.shape, (self.width, self.height, self.channels)))
+
+            if np_array.shape[2] == 4:
+                np_array = np_array[:, :, 3]
+            np_array = np_array.astype("uint8")
+            return self.add_polygon_mask(np_array)
+        except IOError as e:
+            raise TileExtractionException(str(e))
+
+    def add_polygon_mask(self, image):
+        try:
+            return alpha_rasterize(image, self.polygon_mask)
+        except:
+            return image
+
+
+class CytomineIIPTile(CytomineDownloadableTile):
+    def download_tile_image(self):
+        slide = self.base_image
+        iip_topology = TileTopology(slide, None, max_width=256, max_height=256, overlap=0)
+        col_tile = self.abs_offset_x // 256
+        row_tile = self.abs_offset_y // 256
+        iip_tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
+        _slice = slide.slice_instance
+        return Cytomine.get_instance().download_file(_slice.imageServerUrl + "/slice/tile", self.cache_filepath, False, payload={
+            "fif": _slice.path,
+            "mimeType": _slice.mime,
+            "tileIndex": iip_tile_index,
+            "z": slide.api_zoom_level
+        })
+
+
+class CytomineWindowTile(CytomineDownloadableTile):
+    def download_tile_image(self):
+        return self.base_image.image_instance.window(
+            x=self.abs_offset_x,
+            y=self.abs_offset_y,
+            w=self.width,
+            h=self.height,
+            dest_pattern=self.cache_filepath
+        )
+
+
+class CytomineTile(Tile):
+    def __init__(self, working_path, parent, offset, width, height, tile_identifier=None, polygon_mask=None):
+        """Use IIP protocol to reconstruct the requested tile at the specified zoom level
 
         Parameters
         ----------
@@ -108,79 +177,35 @@ class CytomineTile(Tile):
         Tile.__init__(self, parent, offset, width, height, tile_identifier=tile_identifier, polygon_mask=polygon_mask)
         self._working_path = working_path
 
-    @property
     def np_image(self):
-        try:
-            image_instance = self.base_image.image_instance
-            x, y, width, height = self.abs_offset_x, self.abs_offset_y, self.width, self.height
-            zoom = self.base_image.zoom_level
+        left_margin = self.offset_x % 256
+        top_margin = self.offset_y % 256
+        right_margin = 256 - (self.offset_x + self.width) % 256
+        bottom_margin = 256 - (self.offset_y + self.height) % 256
 
-            # check if the tile was cached
-            cache_filename_format = "{id}-{zoom}-{x}-{y}-{w}-{h}.png"
-            cache_filename = cache_filename_format.format(id=image_instance.id, x=x, y=y, w=width, h=height, zoom=zoom)
-            cache_path = os.path.join(self._working_path, cache_filename)
-            success = True
-            if not os.path.exists(cache_path):
-                if zoom == 0:
-                    success = self._get_tile_no_zoom(cache_path)
-                else:
-                    success = self._get_tile_with_zoom(cache_path)
+        offset = self.offset_x - left_margin, self.abs_offset_y - top_margin
+        width = self.width + left_margin + right_margin
+        height = self.height + top_margin + bottom_margin
+        window = self.base_image.window(offset=offset, max_width=width, max_height=height)
 
-            if not success:
-                raise TileExtractionException("Cannot fetch tile at for "
-                                              "'{}'.".format(cache_filename_format.split(".", 1)[0]))
+        builder = CytomineGenericTileBuilder(CytomineIIPTile)
+        topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
 
-            # load image
-            np_array = np.asarray(PIL.Image.open(cache_path))
-            if np_array.shape[1] != width or np_array.shape[0] != height \
-                    or np_array.shape[2] < self._underlying_image_channels:
-                raise TileExtractionException("Fetched image has invalid size : {} instead "
-                                              "of {}".format(np_array.shape, (width, height, self.channels)))
+        rebuilt = np.zeros([height, width, self.channels], dtype=np.uint8)
+        for tile_id, tile in topology:
+            y_start, x_start = tile.offset_y, tile.offset_x
+            y_end, x_end = y_start + 256, x_start + 256
+            rebuilt[y_start:y_end, x_start:x_end] = tile.np_image
 
-            # drop alpha channel if there is one
-            if np_array.shape[2] >= 4:
-                np_array = np_array[:, :, 0:3]
-            np_array = np_array.astype("uint8")
-            if self.polygon_mask is None:
-                return np_array
-            else:
-                try:
-                    return alpha_rasterize(np_array, self.polygon_mask)
-                except ValueError:
-                    return np_array
-        except IOError as e:
-            raise TileExtractionException(str(e))
+        return rebuilt[top_margin:-bottom_margin, left_margin:-right_margin]
 
-    def _get_tile_with_zoom(self, path):
-        slide = self.base_image  # must be a CytomineSlide
-        iip_topology = TileTopology(slide, None, max_width=256, max_height=256, overlap=0)
-        col_tile = self.abs_offset_x // 256
-        row_tile = self.abs_offset_y // 256
-        iip_tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
-        _slice = slide.slice_instance
-        return Cytomine.get_instance().download_file(_slice.imageServerUrl + "/slice/tile", path, False, payload={
-            "fif": _slice.path,
-            "mimeType": _slice.mime,
-            "tileIndex": iip_tile_index,
-            "z": slide.api_zoom_level
-        })
 
-    def _get_tile_no_zoom(self, path):
-        return self.base_image.image_instance.window(
-            x=self.abs_offset_x,
-            y=self.abs_offset_y,
-            w=self.width,
-            h=self.height,
-            dest_pattern=path
-        )
+class CytomineGenericTileBuilder(TileBuilder):
+    def __init__(self, cls):
+        self._cls = cls
 
-    @property
-    def channels(self):
-        return 3 if self.polygon_mask is None else 4
-
-    def _tile_box(self):
-        offset_x, offset_y = self.abs_offset
-        return box(offset_x, offset_y, offset_x + self.width, offset_y + self.height)
+    def build(self, *args, **kwargs):
+        return self._cls(*args, **kwargs)
 
 
 class CytomineTileBuilder(TileBuilder):
