@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 import os
-import warnings
 from abc import abstractmethod
 
-import numpy as np
 import PIL
-from PIL.Image import fromarray
+import cv2
+import numpy as np
 from cytomine import Cytomine
+from PIL.Image import fromarray
+from shapely.geometry import Polygon
 from cytomine.models import ImageInstance
-from shapely.geometry import Polygon, box
+from cytomine.models._utilities import parallel
 from sldc import TileExtractionException, alpha_rasterize, Image, Tile, TileBuilder, TileTopology
+
 
 __author__ = "Mormont Romain <romain.mormont@gmail.com>"
 __version__ = "1.0"
@@ -95,7 +97,7 @@ class CytomineDownloadableTile(Tile):
 
     @property
     def cache_filepath(self):
-        return os.path.join(self._working_path)
+        return os.path.join(self._working_path, self.cache_filename)
 
     @property
     def np_image(self):
@@ -151,7 +153,7 @@ class CytomineWindowTile(CytomineDownloadableTile):
 
 
 class CytomineTile(Tile):
-    def __init__(self, working_path, parent, offset, width, height, tile_identifier=None, polygon_mask=None):
+    def __init__(self, working_path, parent, offset, width, height, tile_identifier=None, polygon_mask=None, n_jobs=1):
         """Use IIP protocol to reconstruct the requested tile at the specified zoom level
 
         Parameters
@@ -176,36 +178,42 @@ class CytomineTile(Tile):
         """
         Tile.__init__(self, parent, offset, width, height, tile_identifier=tile_identifier, polygon_mask=polygon_mask)
         self._working_path = working_path
+        self._n_jobs = n_jobs
 
+    @property
     def np_image(self):
-        left_margin = self.offset_x % 256
-        top_margin = self.offset_y % 256
-        right_margin = 256 - (self.offset_x + self.width) % 256
-        bottom_margin = 256 - (self.offset_y + self.height) % 256
+        left_margin = self.abs_offset_x % 256
+        top_margin = self.abs_offset_y % 256
+        right_margin = 256 - (self.abs_offset_x + self.width) % 256
+        bottom_margin = 256 - (self.abs_offset_y + self.height) % 256
 
-        offset = self.offset_x - left_margin, self.abs_offset_y - top_margin
+        offset = self.abs_offset_x - left_margin, self.abs_offset_y - top_margin
         width = self.width + left_margin + right_margin
         height = self.height + top_margin + bottom_margin
         window = self.base_image.window(offset=offset, max_width=width, max_height=height)
 
-        builder = CytomineGenericTileBuilder(CytomineIIPTile)
+        builder = CytomineGenericTileBuilder(CytomineIIPTile, self._working_path)
         topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
 
+        def download_tile(tile):
+            return tile.np_image
+
         rebuilt = np.zeros([height, width, self.channels], dtype=np.uint8)
-        for tile_id, tile in topology:
+        for tile, tile_image in parallel.generic_download(list(topology), download_tile, n_workers=self._n_jobs):
             y_start, x_start = tile.offset_y, tile.offset_x
             y_end, x_end = y_start + 256, x_start + 256
-            rebuilt[y_start:y_end, x_start:x_end] = tile.np_image
+            rebuilt[y_start:y_end, x_start:x_end] = tile_image
 
         return rebuilt[top_margin:-bottom_margin, left_margin:-right_margin]
 
 
 class CytomineGenericTileBuilder(TileBuilder):
-    def __init__(self, cls):
+    def __init__(self, cls, *args):
         self._cls = cls
+        self._args = args
 
     def build(self, *args, **kwargs):
-        return self._cls(*args, **kwargs)
+        return self._cls(*self._args, *args, **kwargs)
 
 
 class CytomineTileBuilder(TileBuilder):
@@ -213,7 +221,7 @@ class CytomineTileBuilder(TileBuilder):
     A builder for CytomineTile objects
     """
 
-    def __init__(self, working_path):
+    def __init__(self, working_path, n_jobs=0):
         """Construct CytomineTileBuilder objects
 
         Parameters
@@ -222,9 +230,10 @@ class CytomineTileBuilder(TileBuilder):
             A writable working path for the tile builder
         """
         self._working_path = working_path
+        self._n_jobs = n_jobs
 
     def build(self, image, offset, width, height, polygon_mask=None):
-        return CytomineTile(self._working_path, image, offset, width, height, polygon_mask=polygon_mask)
+        return CytomineTile(self._working_path, image, offset, width, height, polygon_mask=polygon_mask, n_jobs=self._n_jobs)
 
 
 class TileCache(object):
@@ -355,3 +364,16 @@ class TileCache(object):
         if alpha:
             basename = "{}_alpha".format(basename)
         return os.path.join(self._working_path, "{}.png".format(basename))
+
+
+if __name__ == "__main__":
+    with Cytomine.connect("https://research.cytomine.be", "8d6ff35f-b894-4dbf-88ec-92110568331c", "af968cb0-70d0-470b-a804-0505ed8e3e7a", verbose=0):
+        slide = CytomineSlide(77150623, zoom_level=5)
+        slide = slide.window((200, 200), 100000, 10000)
+        builder = CytomineTileBuilder(working_path="C:/Git/cytomine/sldc-cytomine/sldc_cytomine/tmp", n_jobs=2)
+        topology = TileTopology(slide, builder, max_width=2000, max_height=2000, overlap=3)
+
+        for tile in topology:
+            image = tile.np_image
+            cv2.imwrite("tile.png", image)
+            print(image.shape)
