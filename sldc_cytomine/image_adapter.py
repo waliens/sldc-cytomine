@@ -183,6 +183,7 @@ class CytomineTile(Tile):
         Tile.__init__(self, parent, offset, width, height, tile_identifier=tile_identifier, polygon_mask=polygon_mask)
         self._working_path = working_path
         self._n_jobs = n_jobs
+        os.makedirs(working_path, exist_ok=True)
 
     @property
     def np_image(self):
