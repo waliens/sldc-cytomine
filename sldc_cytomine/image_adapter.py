@@ -185,6 +185,12 @@ class CytomineTile(Tile):
         self._n_jobs = n_jobs
         os.makedirs(working_path, exist_ok=True)
 
+    def _pad_iip_tile(self, img):
+        padding = [(0, 256 - img.shape[0]), (0, 256 - img.shape[1])]
+        if img.ndim == 3:
+            padding += [(0, 0)]
+        return np.pad(img, padding, mode='constant', constant_values=0)
+
     @property
     def np_image(self):
         left_margin = self.abs_offset_x % 256
@@ -207,7 +213,7 @@ class CytomineTile(Tile):
         for tile, tile_image in parallel.generic_download(list(topology), download_tile, n_workers=self._n_jobs):
             y_start, x_start = tile.offset_y, tile.offset_x
             y_end, x_end = y_start + 256, x_start + 256
-            rebuilt[y_start:y_end, x_start:x_end] = tile_image
+            rebuilt[y_start:y_end, x_start:x_end] = self._pad_iip_tile(tile_image)
 
         return rebuilt[top_margin:-bottom_margin, left_margin:-right_margin]
 
