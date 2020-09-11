@@ -375,16 +375,3 @@ class TileCache(object):
         if alpha:
             basename = "{}_alpha".format(basename)
         return os.path.join(self._working_path, "{}.png".format(basename))
-
-
-if __name__ == "__main__":
-    with Cytomine.connect("https://research.cytomine.be", "8d6ff35f-b894-4dbf-88ec-92110568331c", "af968cb0-70d0-470b-a804-0505ed8e3e7a", verbose=0):
-        slide = CytomineSlide(77150623, zoom_level=5)
-        slide = slide.window((200, 200), 100000, 10000)
-        builder = CytomineTileBuilder(working_path="C:/Git/cytomine/sldc-cytomine/sldc_cytomine/tmp", n_jobs=2)
-        topology = TileTopology(slide, builder, max_width=2000, max_height=2000, overlap=3)
-
-        for tile in topology:
-            image = tile.np_image
-            cv2.imwrite("tile.png", image)
-            print(image.shape)
