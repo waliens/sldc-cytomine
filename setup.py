@@ -3,7 +3,7 @@ from setuptools import setup
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 setup(
     name="sldc-cytomine",
