@@ -157,8 +157,9 @@ class CytomineWindowTile(CytomineDownloadableTile):
 
 
 class CytomineTile(Tile):
-    def __init__(self, working_path, parent, offset, width, height, tile_identifier=None, polygon_mask=None, n_jobs=1):
-        """Use IIP protocol to reconstruct the requested tile at the specified zoom level
+    def __init__(self, working_path, parent, offset, width, height, tile_class=CytomineIIPTile, tile_identifier=None, polygon_mask=None, n_jobs=1):
+        """A abritrarily sized cytomine tile. Will be re-constructed by fetching smaller tiles using the specified
+        protocol.
 
         Parameters
         ----------
@@ -171,10 +172,15 @@ class CytomineTile(Tile):
             The width of the tile
         height: int
             The height of the tile
+        tile_class: class
+            A subclass of 'CytomineDownloadableTile', specifies the download protocol for underlying tiles.
+            The current tile will be built by downloading non-overlapping 256x256 tiles using the given protocol and
+            assembling them into the expected tile. By default, uses IIP through Cytomine API (class `CytomineIIPTile`).
         tile_identifier: int, optional (default: None)
             A integer identifier that identifies uniquely the tile among a set of tiles
         polygon_mask: Polygon (optional, default: None)
             The polygon representing the alpha mask to apply to the tile window
+
 
         Notes
         -----
@@ -183,6 +189,7 @@ class CytomineTile(Tile):
         Tile.__init__(self, parent, offset, width, height, tile_identifier=tile_identifier, polygon_mask=polygon_mask)
         self._working_path = working_path
         self._n_jobs = n_jobs
+        self._tile_class = tile_class
         os.makedirs(working_path, exist_ok=True)
 
     def _pad_iip_tile(self, img):
@@ -203,7 +210,7 @@ class CytomineTile(Tile):
         height = self.height + top_margin + bottom_margin
         window = self.base_image.window(offset=offset, max_width=width, max_height=height)
 
-        builder = CytomineGenericTileBuilder(CytomineIIPTile, self._working_path)
+        builder = CytomineGenericTileBuilder(self._tile_class, self._working_path)
         topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
 
         def download_tile(tile):
