@@ -216,7 +216,7 @@ class CytomineTile(Tile):
         def download_tile(tile):
             return tile.np_image
 
-        rebuilt = np.zeros([height, width, self.channels], dtype=np.uint8)
+        rebuilt = np.zeros([height, width, self.base_image.channels], dtype=np.uint8)
         for tile, tile_image in parallel.generic_download(list(topology), download_tile, n_workers=self._n_jobs):
             y_start, x_start = tile.offset_y, tile.offset_x
             y_end, x_end = y_start + 256, x_start + 256
