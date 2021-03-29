@@ -239,19 +239,25 @@ class CytomineTileBuilder(TileBuilder):
     A builder for CytomineTile objects
     """
 
-    def __init__(self, working_path, n_jobs=0):
+    def __init__(self, working_path, tile_class=CytomineIIPTile, n_jobs=0):
         """Construct CytomineTileBuilder objects
 
         Parameters
         ----------
-        working_path:
+        working_path: str
             A writable working path for the tile builder
+        tile_class: class
+            A tile class to be used for building the tiles.
+        n_jobs: int
+            Number of jobs to use for fetching tiles
         """
         self._working_path = working_path
         self._n_jobs = n_jobs
+        self._tile_class = tile_class
 
     def build(self, image, offset, width, height, polygon_mask=None):
-        return CytomineTile(self._working_path, image, offset, width, height, polygon_mask=polygon_mask, n_jobs=self._n_jobs)
+        return CytomineTile(self._working_path, image, offset, width, height,
+                            tile_class=self._tile_class, polygon_mask=polygon_mask, n_jobs=self._n_jobs)
 
 
 class TileCache(object):
