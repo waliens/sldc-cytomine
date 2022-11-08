@@ -6,25 +6,21 @@ from skimage import io
 from shapely.affinity import affine_transform
 from cytomine.models import ImageInstance, Annotation
 from cytomine.models._utilities.pattern_matching import resolve_pattern
+from sldc_cytomine.autodetect import infer_protocols
 
 from sldc_cytomine.image import CytomineSlide
 from sldc_cytomine.tile_builder import CytomineTileBuilder
-from sldc_cytomine.tile import CytomineIIPTile
 
 
-def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
-  """Infer the sldc.Image that must be extracted based on the parameters
-
+def _image_from_zone(zone):
+  """
   Parameters
   ----------
   zone: int|str|Annotation|ImageInstance
     Integer and string are interpreted as an image instance identifier. When the argument is a Cytomine Annotation
     the resulting zone is a crop of the annotation in the image it belongs to. Otherwise, the zone is considered to 
     be the whole image. 
-  zoom_level: int
-    The zoom level
-  slide_class:
-    A subclass of AbstractCytomineSlide in which to encapsulate the image.
+
   """
   if isinstance(zone, int) or isinstance(zone, str):
     image = ImageInstance().fetch(zone)
@@ -36,6 +32,21 @@ def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
     image = ImageInstance().fetch(zone.image)
   else:
     raise TypeError(f"unknown region input type, found '{type(zone)}'")
+  return image
+
+def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
+  """Infer the sldc.Image that must be extracted based on the parameters
+
+  Parameters
+  ----------
+  zone: int|str|Annotation|ImageInstance
+    see _image_from_zone
+  zoom_level: int
+    The zoom level
+  slide_class:
+    A subclass of AbstractCytomineSlide in which to encapsulate the image.
+  """
+  image = _image_from_zone(zone)
 
   slide = slide_class(image, zoom_level=zoom_level)
   if not isinstance(zone, Annotation):
@@ -53,8 +64,8 @@ def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
 def dump_region(
   zone, 
   dest_pattern: str, 
-  slide_class=CytomineSlide, 
-  tile_class=CytomineIIPTile, 
+  slide_class=None, 
+  tile_class=None, 
   zoom_level: int=0, n_jobs=0, 
   working_path=None, plugin=None
 ):
@@ -69,9 +80,9 @@ def dump_region(
     The destination path pattern. Can contain placeholder '{property}' to be replaced with attributes 
     of 'zone'.
   slide_class: 
-    A subclass of AbstractCytomineSlide
+    A subclass of AbstractCytomineSlide, by default (None) attempt to auto detect the protocol and subclass to use
   tile_class:
-    A subclass of CytomineDownloadableTile 
+    A subclass of CytomineDownloadableTile, by default (None) attempt to auto detect the protocol and subclass to use 
   zoom_level: int
     The zoom level at which the image must be dumped
   working_path: str
@@ -88,6 +99,11 @@ def dump_region(
     raise ValueError("pattern '{}' does not resolve into a unique path".format(dest_pattern))
   dump_path = dump_paths[0]
 
+  if (slide_class is None) ^ (tile_class is None):
+    raise ValueError("protocol inference will detect both the slide class and tile class, set both to None for autodetection") 
+  if slide_class is None and tile_class is None:
+    slide_class, tile_class = infer_protocols(_image_from_zone(zone))
+
   # defined dump region
   region = _infer_image_region(zone, zoom_level=zoom_level, slide_class=slide_class)
   tile_builder = CytomineTileBuilder(working_path, tile_class=tile_class, n_jobs=n_jobs)
@@ -98,6 +114,6 @@ def dump_region(
   # load in memory 
   # TODO infilew riting
   img = tile.np_image
-  io.imsave(dump_path, img,  check_contrast=False, plugin=plugin)
+  io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
   return dump_path
   

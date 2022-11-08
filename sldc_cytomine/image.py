@@ -8,7 +8,7 @@ __author__ = "Mormont Romain <romain.mormont@gmail.com>"
 
 
 class AbstractCytomineSlide(Image):
-  def __init__(self, image_instance: ImageInstance, zoom_level: int):
+  def __init__(self, image_instance: ImageInstance, zoom_level: int=0):
     """
     Parameters
     ----------
