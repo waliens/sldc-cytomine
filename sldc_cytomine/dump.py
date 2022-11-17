@@ -63,10 +63,11 @@ def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
 
 def dump_region(
   zone, 
-  dest_pattern: str, 
+  dest_pattern: str=None, 
   slide_class=None, 
   tile_class=None, 
-  zoom_level: int=0, n_jobs=0, 
+  zoom_level: int=0, n_jobs=0,
+  skip_save=False,
   working_path=None, plugin=None
 ):
   """Dump an image from a Cytomine server by downloading it tile by tile (in parallel)
@@ -78,7 +79,7 @@ def dump_region(
     an cytomine.models.ImageInstance. For a region, pass a cytomine.models.Annotation.
   dest_pattern: str
     The destination path pattern. Can contain placeholder '{property}' to be replaced with attributes 
-    of 'zone'.
+    of 'zone'. 
   slide_class: 
     A subclass of AbstractCytomineSlide, by default (None) attempt to auto detect the protocol and subclass to use
   tile_class:
@@ -88,16 +89,17 @@ def dump_region(
   working_path: str
     The working path where to store the downloaded tiles. This path should exist until the dump function
     has exited.
+  n_jobs: int
+    0 for using all available cpus, otherwise the number of cpus to use
+  skip_save: bool
+    Not to save the image into a file
   plugin:
     A plugin for saving the image (see `skimage.io.imsave`)
   """
+  if dest_pattern is None and not skip_save:
+    raise ValueError("a filepath destination pattern must be provided for saving the file")
   if working_path is None:
     working_path = os.getcwd()
-
-  dump_paths = resolve_pattern(dest_pattern, zone)
-  if len(dump_paths) != 1:
-    raise ValueError("pattern '{}' does not resolve into a unique path".format(dest_pattern))
-  dump_path = dump_paths[0]
 
   if (slide_class is None) ^ (tile_class is None):
     raise ValueError("protocol inference will detect both the slide class and tile class, set both to None for autodetection") 
@@ -114,6 +116,12 @@ def dump_region(
   # load in memory 
   # TODO infilew riting
   img = tile.np_image
-  io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
-  return dump_path
-  
+  if not skip_save:
+    dump_paths = resolve_pattern(dest_pattern, zone)
+    if len(dump_paths) != 1:
+      raise ValueError("pattern '{}' does not resolve into a unique path".format(dest_pattern))
+    dump_path = dump_paths[0]
+    io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
+    return dump_path
+  else:
+    return None
