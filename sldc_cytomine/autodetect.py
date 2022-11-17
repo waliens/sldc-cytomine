@@ -29,6 +29,9 @@ def infer_protocols(image_instance):
   """
   if not isinstance(image_instance, ImageInstance):
     image_instance = ImageInstance().fetch(image_instance)
+  
+  if image_instance is None or not image_instance:
+    raise ValueError("cannot infer protocols, invalid image instance") 
 
   with TemporaryDirectory() as tmpdir:
     if _infer_has_slice(image_instance):
