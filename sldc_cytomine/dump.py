@@ -119,3 +119,40 @@ def dump_region(
   dump_path = dump_paths[0]
   io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
   return dump_path
+
+
+def load_region_tiles(  
+  zone,
+  load_path,
+  slide_class=None, 
+  tile_class=None, 
+  zoom_level: int=0, n_jobs=0,
+):
+  """Downloads the tiles needed to reconstruct the image and save them in load_path. Tiles will not be all loaded
+  simultaneously into memory.
+
+  Parameters
+  ----------
+  zone: int|str|ImageInstance|Annotation
+    The area of the image to dump. For a whole image pass the image id (as an int or str) or 
+    an cytomine.models.ImageInstance. For a region, pass a cytomine.models.Annotation.
+  load_path: str
+    Path where to store the tile image files
+  slide_class: 
+    A subclass of AbstractCytomineSlide, by default (None) attempt to auto detect the protocol and subclass to use
+  tile_class:
+    A subclass of CytomineDownloadableTile, by default (None) attempt to auto detect the protocol and subclass to use 
+  zoom_level: int
+    The zoom level at which the image must be dumped
+  n_jobs: int
+    0 for using all available cpus, otherwise the number of cpus to use
+  """
+  if (slide_class is None) ^ (tile_class is None):
+    raise ValueError("protocol inference will detect both the slide class and tile class, set both to None for autodetection") 
+  if slide_class is None and tile_class is None:
+    slide_class, tile_class = infer_protocols(_image_from_zone(zone))
+    
+  region = _infer_image_region(zone, zoom_level=zoom_level, slide_class=slide_class)
+  tile_builder = CytomineTileBuilder(load_path, tile_class=tile_class, n_jobs=n_jobs)
+  tile = tile_builder.build(region, (0, 0), region.width, region.height)
+  tile.fetch_subtiles()
