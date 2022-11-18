@@ -63,14 +63,14 @@ def _infer_image_region(zone, zoom_level=0, slide_class=CytomineSlide):
 
 def dump_region(
   zone, 
-  dest_pattern: str=None, 
+  dest_pattern: str, 
   slide_class=None, 
   tile_class=None, 
   zoom_level: int=0, n_jobs=0,
-  skip_save=False,
   working_path=None, plugin=None
 ):
   """Dump an image from a Cytomine server by downloading it tile by tile (in parallel)
+  /!\ The image is loaded into memory entirely.
 
   Parameters
   ----------
@@ -91,13 +91,9 @@ def dump_region(
     has exited.
   n_jobs: int
     0 for using all available cpus, otherwise the number of cpus to use
-  skip_save: bool
-    Not to save the image into a file
   plugin:
     A plugin for saving the image (see `skimage.io.imsave`)
   """
-  if dest_pattern is None and not skip_save:
-    raise ValueError("a filepath destination pattern must be provided for saving the file")
   if working_path is None:
     working_path = os.getcwd()
 
@@ -116,12 +112,10 @@ def dump_region(
   # load in memory 
   # TODO infilew riting
   img = tile.np_image
-  if not skip_save:
-    dump_paths = resolve_pattern(dest_pattern, zone)
-    if len(dump_paths) != 1:
-      raise ValueError("pattern '{}' does not resolve into a unique path".format(dest_pattern))
-    dump_path = dump_paths[0]
-    io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
-    return dump_path
-  else:
-    return None
+  
+  dump_paths = resolve_pattern(dest_pattern, zone)
+  if len(dump_paths) != 1:
+    raise ValueError("pattern '{}' does not resolve into a unique path".format(dest_pattern))
+  dump_path = dump_paths[0]
+  io.imsave(dump_path, img, check_contrast=False, plugin=plugin)
+  return dump_path
