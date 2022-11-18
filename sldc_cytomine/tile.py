@@ -147,19 +147,24 @@ class CytomineTile(Tile):
       padding += [(0, 0)]
     return np.pad(img, padding, mode='constant', constant_values=0)
 
-  @property
-  def np_image(self):
+  def _iip_window(self):
     left_margin = self.abs_offset_x % 256
     top_margin = self.abs_offset_y % 256
     right_margin = 256 - (self.abs_offset_x + self.width) % 256
     bottom_margin = 256 - (self.abs_offset_y + self.height) % 256
-
+    margins = [top_margin, left_margin, bottom_margin, right_margin]
+     
     offset = self.abs_offset_x - left_margin, self.abs_offset_y - top_margin
     width = self.width + left_margin + right_margin
     height = self.height + top_margin + bottom_margin
     window = self.base_image.window(offset=offset, max_width=width, max_height=height)
 
+    return window, offset, (width, height), margins
+
+  @property
+  def np_image(self):
     from sldc_cytomine.tile_builder import CytomineGenericTileBuilder
+    window, _, (width, height), margins = self._iip_window()
     builder = CytomineGenericTileBuilder(self._tile_class, self._working_path)
     topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
 
@@ -172,4 +177,16 @@ class CytomineTile(Tile):
       y_end, x_end = y_start + 256, x_start + 256
       rebuilt[y_start:y_end, x_start:x_end] = self._pad_iip_tile(tile_image)
 
-    return rebuilt[top_margin:-bottom_margin, left_margin:-right_margin]
+    return rebuilt[margins[0]:-margins[2], margins[1]:-margins[3]]
+
+  def fetch_subtiles(self):
+    """fetch underlying tiles without loading them into memory"""
+    from sldc_cytomine.tile_builder import CytomineGenericTileBuilder
+    window, _, _, _ = self._iip_window()
+    builder = CytomineGenericTileBuilder(self._tile_class, self._working_path)
+    topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
+    
+    def download_tile(tile: CytomineDownloadableTile):
+      return tile.download_tile_image()
+
+    _ = parallel.generic_download(list(topology), download_tile, n_workers=self._n_jobs)
