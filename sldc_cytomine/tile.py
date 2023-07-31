@@ -39,9 +39,9 @@ class CytomineDownloadableTile(Tile):
 
       np_array = imread(self.cache_filepath)
 
-      if np_array.shape[:2] != (self.height, self.width) or  np_array.shape[2] != self.base_image.channels:
-        raise TileExtractionException("Fetched image has invalid size : {} instead "
-                                      "of {}".format(np_array.shape, (self.width, self.height, self.channels)))
+      # if np_array.shape[:2] != (self.height, self.width) or  np_array.shape[2] != self.base_image.channels:
+      #   raise TileExtractionException("Fetched image has invalid size : {} instead "
+      #                                 "of {}".format(np_array.shape, (self.width, self.height, self.channels)))
 
       if np_array.shape[2] == 4:
         np_array = np_array[:, :, 3]
@@ -90,6 +90,26 @@ class CytomineIIPTile(CytomineDownloadableTile):
       "mimeType": _slice.mime,
       "tileIndex": iip_tile_index,
       "z": slide.api_zoom_level
+    })
+
+
+class CytominePimsTile(CytomineDownloadableTile):
+  """Tile fetch using the Zoomify protocol (for older Cytomine versions)"""
+  def download_tile_image(self):
+    slide = self.base_image
+    if not isinstance(slide, CytomineSlide):
+      raise TypeError(f"CytominePims tile should be used in conjunction with CytomineSlide only (as base image), found `{type(slide)}`")
+    iip_topology = TileTopology(slide, None, max_width=256, max_height=256, overlap=0)
+    col_tile = self.abs_offset_x // 256
+    row_tile = self.abs_offset_y // 256
+    tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
+    _slice = slide.slice_instance
+    zoom = self.base_image.image_instance.zoom - slide.zoom_level
+    return Cytomine.get_instance().download_file(f"{_slice.imageServerUrl}/image/{_slice.path}/normalized-tile/zoom/{zoom}/ti/{tile_index}.jpg", self.cache_filepath, False, payload={
+      "z_slices": "0",
+      "timepoints": "0",
+      "channels": "0,1,2",
+      "colormaps": "#f00,#0f0,#00f",
     })
 
 
