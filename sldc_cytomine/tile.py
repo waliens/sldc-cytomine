@@ -105,6 +105,15 @@ class CytominePimsTile(CytomineDownloadableTile):
     tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
     _slice = slide.slice_instance
     zoom = self.base_image.image_instance.zoom - slide.zoom_level
+
+    # Not compatible with 2024.1, rather use 
+    # return Cytomine.get_instance().download_file(f"sliceinstance/{_slice.id}/normalized-tile/zoom/{zoom}/tx/{col_tile}/ty/{row_tile}.jpg", self.cache_filepath, False, payload={
+    # "z_slices": "0",
+    # "timepoints": "0",
+    # "channels": "0,1,2",
+    # "colormaps": "#f00,#0f0,#00f",
+    # })
+    
     return Cytomine.get_instance().download_file(f"{_slice.imageServerUrl}/image/{_slice.path}/normalized-tile/zoom/{zoom}/ti/{tile_index}.jpg", self.cache_filepath, False, payload={
       "z_slices": "0",
       "timepoints": "0",
