@@ -17,7 +17,7 @@ class CytomineDownloadableTile(Tile):
 
   @abstractmethod
   def download_tile_image(self):
-    pass      
+    pass
 
   @property
   def cache_filename(self):
@@ -105,12 +105,32 @@ class CytominePimsTile(CytomineDownloadableTile):
     tile_index = col_tile + row_tile * iip_topology.tile_horizontal_count
     _slice = slide.slice_instance
     zoom = self.base_image.image_instance.zoom - slide.zoom_level
+
     return Cytomine.get_instance().download_file(f"{_slice.imageServerUrl}/image/{_slice.path}/normalized-tile/zoom/{zoom}/ti/{tile_index}.jpg", self.cache_filepath, False, payload={
       "z_slices": "0",
       "timepoints": "0",
       "channels": "0,1,2",
       "colormaps": "#f00,#0f0,#00f",
     })
+
+class CytominePims20241Tile(CytomineDownloadableTile):
+  """Tile fetch using the PIMS CE/EET2024.1 """
+  def download_tile_image(self):
+    slide = self.base_image
+    if not isinstance(slide, CytomineSlide):
+      raise TypeError(f"CytominePims tile should be used in conjunction with CytomineSlide only (as base image), found `{type(slide)}`")
+    col_tile = self.abs_offset_x // 256
+    row_tile = self.abs_offset_y // 256
+    _slice = slide.slice_instance
+    zoom = self.base_image.image_instance.zoom - slide.zoom_level
+
+    return Cytomine.get_instance().download_file(f"sliceinstance/{_slice.id}/normalized-tile/zoom/{zoom}/tx/{col_tile}/ty/{row_tile}.jpg", self.cache_filepath, False, payload={
+    "z_slices": "0",
+    "timepoints": "0",
+    "channels": "0,1,2",
+    "colormaps": "#f00,#0f0,#00f",
+    })
+    # Not compatible with 2024.1, rather use
 
 
 class CytomineWindowTile(CytomineDownloadableTile):
@@ -173,7 +193,7 @@ class CytomineTile(Tile):
     right_margin = 256 - (self.abs_offset_x + self.width) % 256
     bottom_margin = 256 - (self.abs_offset_y + self.height) % 256
     margins = [top_margin, left_margin, bottom_margin, right_margin]
-     
+
     offset = self.abs_offset_x - left_margin, self.abs_offset_y - top_margin
     width = self.width + left_margin + right_margin
     height = self.height + top_margin + bottom_margin
@@ -205,7 +225,7 @@ class CytomineTile(Tile):
     window, _, _, _ = self._iip_window()
     builder = CytomineGenericTileBuilder(self._tile_class, self._working_path)
     topology = TileTopology(window, builder, max_width=256, max_height=256, overlap=0)
-    
+
     def download_tile(tile: CytomineDownloadableTile):
       return tile.download_tile_image()
 
